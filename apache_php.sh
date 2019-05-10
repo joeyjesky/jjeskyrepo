@@ -13,7 +13,8 @@ sudo apt-get -y install apache2
 PUB_IP="$(curl -s checkip.dyndns.org | sed -e 's/.*Current IP Address: //' -e 's/<.*$//')"
 
 #Editing apache2.conf file
-echo "ServerName $PUB_IP" >> /etc/apache2/apache2.conf
+#echo "ServerName $PUB_IP" >> /etc/apache2/apache2.conf
+echo "ServerName $PUB_IP" | sudo tee -a /etc/apache2/apache2.conf
 
 #Installing PHP and required modules
 echo "Installing php modules"
