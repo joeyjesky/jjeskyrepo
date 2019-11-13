@@ -1,0 +1,204 @@
+pool:
+  vmImage: 'win1803'
+
+steps:
+- task: UniversalPackages@0
+  inputs:
+    command: download
+    vstsFeed: 'powershell_scripts'
+    vstsFeedPackage: 'terraform_download_script'
+    vstsPackageVersion: "$(latest_terraform_download_script)"
+  displayName: 'Pull Terraform Download Package'
+- powershell: |
+    cd terraform_download_script
+    ./terraform_download_script.ps1
+- task: DownloadSecureFile@1
+  inputs:
+    secureFile: "$(non_production_backend)"
+- task: DownloadSecureFile@1
+  inputs:
+    secureFile: "$(non_production_sp_cred)"
+- task: DownloadSecureFile@1
+  inputs:
+    secureFile: "$(production_backend)"
+- task: DownloadSecureFile@1
+  inputs:
+    secureFile: "$(production_sp_cred)"
+- task: DownloadSecureFile@1
+  inputs:
+    secureFile: "$(productiondr_backend)"
+- task: UniversalPackages@0
+  displayName: 'Universal download'
+  inputs:
+    command: download
+    vstsFeed: 'terraform_modules'
+    vstsFeedPackage: 'terraform_naming_module'
+    vstsPackageVersion: "$(latest_naming_module)"
+- task: UniversalPackages@0
+  displayName: 'Universal download'
+  inputs:
+    command: download
+    vstsFeed: 'terraform_modules'
+    vstsFeedPackage: 'terraform_backup_policy_module'
+    vstsPackageVersion: "$(latest_backup_policy_module)"
+- task: UniversalPackages@0
+  displayName: 'Universal download'
+  inputs:
+    command: download
+    vstsFeed: 'terraform_modules'
+    vstsFeedPackage: 'terraform_standard_application_module'
+    vstsPackageVersion: "$(latest_application_module)"
+- task: UniversalPackages@0
+  displayName: 'Download SQL VM module'
+  inputs:
+    command: download
+    vstsFeed: 'terraform_modules'
+    vstsFeedPackage: 'terraform_sqlvm_azure_module'
+    vstsPackageVersion: "$(latest_sqlvm_module)"
+- task: UniversalPackages@0
+  displayName: 'Universal download'
+  inputs:
+    command: download
+    vstsFeed: 'terraform_modules'
+    vstsFeedPackage: 'terraform_diagnostic_settings_module'
+    vstsPackageVersion: "$(latest_diagnostic_settings_module)"
+- task: DownloadBuildArtifacts@0
+  inputs:
+    buildType: specific
+    project: Brunswick
+    pipeline: $(nsr_module_build_pipeline)
+    buildVersionToDownload: 'latestFromBranch'
+    branchName: 'refs/heads/master'
+    downloadType: 'specific'
+    itemPattern: '**'
+    downloadPath: '$(Build.SourcesDirectory)' 
+- task: UniversalPackages@0
+  displayName: 'Universal download'
+  inputs:
+    command: download
+    vstsFeed: 'terraform_modules'
+    vstsFeedPackage: 'terraform_vm_azure_module'
+    vstsPackageVersion: "$(latest_vm_module)"
+- task: CopyFiles@2
+  inputs:
+    sourceFolder: $(Agent.TempDirectory)
+    contents: "$(non_production_backend)"
+    targetFolder: $(Build.SourcesDirectory)
+- task: CopyFiles@2
+  inputs:
+    sourceFolder: $(Agent.TempDirectory)
+    contents: "$(non_production_sp_cred)"
+    targetFolder: $(Build.SourcesDirectory)
+- powershell: |
+    Copy-Item -Path ./resource_inputs/test.tf -Destination ./test.tf
+
+    #Initialize production Terraform instance
+    ./terraform.exe init -force-copy -backend-config="key=APP3054.tfstate"
+
+  displayName: 'Initialize Terraform in test'
+- powershell: |
+
+    #Run Terraform plan against production Terraform instance and output plan file
+    ./terraform.exe plan -var environment=non_production -var virtual_network=$env:nonprdvnet -var virtual_network_rg=$env:nonprdvnetrg -var rt_id=$env:nonprdrt -var oms_id=$env:nonprdbrnoms -var oms_rg=$env:nonprdbrnomsrg -var-file="./variable_inputs/test.tfvars" -out="test$(plan_file_mnemonic)"
+
+    Remove-Item ./test.tf
+
+  displayName: 'Run Terraform Plan for test'
+- task: DeleteFiles@1
+  inputs:
+    sourceFolder: $(Build.SourcesDirectory)
+    contents: "$(non_production_backend)"
+- task: DeleteFiles@1
+  inputs:
+    sourceFolder: $(Build.SourcesDirectory)
+    contents: "$(non_production_sp_cred)"
+- task: PublishBuildArtifacts@1
+  inputs:
+      pathtoPublish: $(Build.SourcesDirectory)
+      artifactname: 'test'
+- task: DeleteFiles@1
+  inputs:
+    sourceFolder: $(Build.SourcesDirectory)
+    contents: "./.terraform"
+- task: DeleteFiles@1
+  inputs:
+    sourceFolder: $(Build.SourcesDirectory)
+    contents: "test$(plan_file_mnemonic)"
+- task: CopyFiles@2
+  inputs:
+    sourceFolder: $(Agent.TempDirectory)
+    contents: "$(production_backend)"
+    targetFolder: $(Build.SourcesDirectory)
+- task: CopyFiles@2
+  inputs:
+    sourceFolder: $(Agent.TempDirectory)
+    contents: "$(production_sp_cred)"
+    targetFolder: $(Build.SourcesDirectory)
+- powershell: |
+    Copy-Item -Path ./resource_inputs/production.tf -Destination ./production.tf
+    #Initialize production Terraform instance
+    ./terraform.exe init -force-copy -backend-config="key=APP2781.tfstate"
+
+  displayName: 'Initialize Terraform in production'
+- powershell: |
+
+    #Run Terraform plan against production Terraform instance and output plan file
+    ./terraform.exe plan -var environment=production -var virtual_network=$env:prdvnet -var virtual_network_rg=$env:prdvnetrg -var rt_id=$env:prdrt -var oms_id=$env:prdbrnoms -var oms_rg=$env:prdbrnomsrg -var-file="./variable_inputs/production.tfvars" -out="production$(plan_file_mnemonic)"
+    Remove-Item ./production.tf
+  displayName: 'Run Terraform Plan for production'
+- task: DeleteFiles@1
+  inputs:
+    sourceFolder: $(Build.SourcesDirectory)
+    contents: "$(production_backend)"
+- task: DeleteFiles@1
+  inputs:
+    sourceFolder: $(Build.SourcesDirectory)
+    contents: "$(production_sp_cred)"
+- task: PublishBuildArtifacts@1
+  inputs:
+      pathtoPublish: $(Build.SourcesDirectory)
+      artifactname: 'production'
+- task: DeleteFiles@1
+  inputs:
+    sourceFolder: $(Build.SourcesDirectory)
+    contents: "./.terraform"
+- task: DeleteFiles@1
+  inputs:
+    sourceFolder: $(Build.SourcesDirectory)
+    contents: "production$(plan_file_mnemonic)"
+#Pipeline for DR
+- task: CopyFiles@2
+  inputs:
+    sourceFolder: $(Agent.TempDirectory)
+    contents: "$(productiondr_backend)"
+    targetFolder: $(Build.SourcesDirectory)
+- task: CopyFiles@2
+  inputs:
+    sourceFolder: $(Agent.TempDirectory)
+    contents: "$(production_sp_cred)"
+    targetFolder: $(Build.SourcesDirectory)
+- powershell: |
+    Copy-Item -Path ./resource_inputs/productiondr.tf -Destination ./productiondr.tf
+    #Initialize production Terraform instance
+    ./terraform.exe init -force-copy -backend-config="key=APP2781DR.tfstate"
+
+  displayName: 'Initialize Terraform in production DR'
+- powershell: |
+
+    #Run Terraform plan against production Terraform instance and output plan file
+    ./terraform.exe plan -var environment=production -var virtual_network=$env:prddrvnet -var virtual_network_rg=$env:prddrvnetrg -var rt_id=$env:prddrrt -var oms_id=$env:prdbrnoms -var oms_rg=$env:prdbrnomsrg -var-file="./variable_inputs/productiondr.tfvars" -out="productiondr$(plan_file_mnemonic)"
+
+    Remove-Item ./productiondr.tf
+  displayName: 'Run Terraform Plan for production DR'
+- task: DeleteFiles@1
+  inputs:
+    sourceFolder: $(Build.SourcesDirectory)
+    contents: "$(productiondr_backend)"
+- task: DeleteFiles@1
+  inputs:
+    sourceFolder: $(Build.SourcesDirectory)
+    contents: "$(production_sp_cred)"
+- task: PublishBuildArtifacts@1
+  inputs:
+    pathtoPublish: $(Build.SourcesDirectory)
+    artifactname: 'productiondr'
